@@ -604,19 +604,19 @@ export default function App() {
                     label: "Sisyphus",
                     tone: "teal" as const,
                     overlayId: "agent:sisyphus" as const,
-                    baseline: true,
+                    baseline: false,
                   },
                   {
                     label: "Prometheus",
                     tone: "red" as const,
                     overlayId: "agent:prometheus" as const,
-                    baseline: true,
+                    baseline: false,
                   },
                   {
                     label: "Atlas",
                     tone: "green" as const,
                     overlayId: "agent:atlas" as const,
-                    baseline: true,
+                    baseline: false,
                   },
                   {
                     label: "background tasks (total)",
