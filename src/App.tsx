@@ -800,7 +800,7 @@ export default function App() {
                       </td>
                       <td className="mono">{t.toolCalls}</td>
                       <td className="mono">{t.lastTool}</td>
-                      <td className="mono muted">{t.timeline || "-"}</td>
+                      <td className="mono muted">{t.status.toLowerCase() === "queued" ? "-" : t.timeline || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
