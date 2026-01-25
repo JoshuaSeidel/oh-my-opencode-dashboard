@@ -71,7 +71,8 @@ export async function playDing(kind: DingKind): Promise<void> {
   const baseGain = 0.06
 
   if (kind === "waiting") {
-    playTone({ at: t0, freq: 784, dur: 0.09, gain: baseGain })
+    playTone({ at: t0, freq: 784, dur: 0.08, gain: baseGain })
+    playTone({ at: t0 + 0.10, freq: 659, dur: 0.10, gain: baseGain })
     return
   }
 

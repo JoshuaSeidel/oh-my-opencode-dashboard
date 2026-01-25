@@ -363,6 +363,15 @@ export default function App() {
             >
               Sound {soundEnabled ? (soundUnlocked ? "On" : "On") : "Off"}
             </button>
+            <button
+              className="button"
+              type="button"
+              onClick={() => void playDing("task")}
+              title="Play ding"
+              aria-label="Play ding sound"
+            >
+              Ding
+            </button>
             <button className="button" type="button" onClick={onCopyRawJson}>
               {copyState === "ok" ? "Copied" : copyState === "err" ? "Copy failed" : "Copy raw JSON"}
             </button>
