@@ -281,7 +281,7 @@ describe("buildDashboardPayload", () => {
     }
   })
 
-  it("includes elapsed time in status pill when status is unknown and session meta is present", () => {
+  it("does not include elapsed time in status pill when status is unknown", () => {
     const storageRoot = mkStorageRoot()
     const storage = getStorageRoots(storageRoot)
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "omo-project-"))
@@ -308,7 +308,7 @@ describe("buildDashboardPayload", () => {
         nowMs: 65_000,
       })
 
-      expect(payload.mainSession.statusPill).toBe("unknown (1m4s)")
+      expect(payload.mainSession.statusPill).toBe("unknown")
     } finally {
       fs.rmSync(storageRoot, { recursive: true, force: true })
       fs.rmSync(projectRoot, { recursive: true, force: true })

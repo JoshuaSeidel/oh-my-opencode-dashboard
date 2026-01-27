@@ -91,37 +91,6 @@ function mainStatusPill(status: string): string {
   return "unknown"
 }
 
-function formatElapsed(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
-  const seconds = totalSeconds % 60
-  const totalMinutes = Math.floor(totalSeconds / 60)
-  const minutes = totalMinutes % 60
-  const totalHours = Math.floor(totalMinutes / 60)
-  const hours = totalHours % 24
-  const days = Math.floor(totalHours / 24)
-
-  if (days > 0) return hours > 0 ? `${days}d${hours}h` : `${days}d`
-  if (totalHours > 0) return minutes > 0 ? `${totalHours}h${minutes}m` : `${totalHours}h`
-  if (totalMinutes > 0) return seconds > 0 ? `${totalMinutes}m${seconds}s` : `${totalMinutes}m`
-  return `${seconds}s`
-}
-
-function formatMainStatusPill(status: string, nowMs: number, lastUpdated: number | null): string {
-  const base = mainStatusPill(status)
-  if (base !== "unknown") return base
-  if (typeof lastUpdated !== "number") return base
-  return `unknown (${formatElapsed(nowMs - lastUpdated)})`
-}
-
-function pickStatusElapsedAnchor(opts: {
-  sessionMeta?: SessionMetadata | null
-  mainLastUpdated: number | null
-}): number | null {
-  if (typeof opts.mainLastUpdated === "number") return opts.mainLastUpdated
-  const fromMeta = opts.sessionMeta?.time?.updated ?? opts.sessionMeta?.time?.created ?? null
-  return typeof fromMeta === "number" ? fromMeta : null
-}
-
 export function buildDashboardPayload(opts: {
   projectRoot: string
   storage: OpenCodeStorageRoots
@@ -173,11 +142,7 @@ export function buildDashboardPayload(opts: {
       currentTool: main.currentTool ?? "-",
       lastUpdatedLabel: formatIso(main.lastUpdated),
       session: main.sessionLabel,
-      statusPill: formatMainStatusPill(
-        main.status,
-        nowMs,
-        pickStatusElapsedAnchor({ sessionMeta, mainLastUpdated: main.lastUpdated })
-      ),
+      statusPill: mainStatusPill(main.status),
     },
     planProgress: {
       name: planName,
