@@ -1,6 +1,7 @@
 import * as React from "react";
 import { computeWaitingDing } from "./ding-policy";
 import { playDing, unlockAudio } from "./sound";
+import { computeStackedSegments } from "./timeseries-stacked";
 
 const APP_VERSION =
   typeof __APP_VERSION__ === "string" && __APP_VERSION__.trim().length > 0 ? __APP_VERSION__ : "0.0.0";
@@ -651,24 +652,11 @@ export default function App() {
               {(
                 [
                   {
-                    label: "Sisyphus",
-                    tone: "teal" as const,
-                    overlayId: "agent:sisyphus" as const,
-                    baseline: false,
+                    kind: "main-agents" as const,
+                    label: "Main agents" as const,
                   },
                   {
-                    label: "Prometheus",
-                    tone: "red" as const,
-                    overlayId: "agent:prometheus" as const,
-                    baseline: false,
-                  },
-                  {
-                    label: "Atlas",
-                    tone: "green" as const,
-                    overlayId: "agent:atlas" as const,
-                    baseline: false,
-                  },
-                  {
+                    kind: "single" as const,
                     label: "background tasks (total)",
                     tone: "muted" as const,
                     overlayId: "background-total" as const,
@@ -683,6 +671,82 @@ export default function App() {
                 const baselineY = H - padBottom;
                 const barW = 0.85;
                 const barInset = (1 - barW) / 2;
+
+                if (row.kind === "main-agents") {
+                  const sisyphusValues = timeSeriesById.get("agent:sisyphus")?.values ?? [];
+                  const prometheusValues = timeSeriesById.get("agent:prometheus")?.values ?? [];
+                  const atlasValues = timeSeriesById.get("agent:atlas")?.values ?? [];
+
+                  let sumMax = 0;
+                  for (let i = 0; i < buckets; i++) {
+                    const rawSis = sisyphusValues[i];
+                    const rawPro = prometheusValues[i];
+                    const rawAtl = atlasValues[i];
+                    const sis = typeof rawSis === "number" && Number.isFinite(rawSis) ? Math.max(0, rawSis) : 0;
+                    const pro = typeof rawPro === "number" && Number.isFinite(rawPro) ? Math.max(0, rawPro) : 0;
+                    const atl = typeof rawAtl === "number" && Number.isFinite(rawAtl) ? Math.max(0, rawAtl) : 0;
+                    const s = sis + pro + atl;
+                    if (s > sumMax) sumMax = s;
+                  }
+
+                  const scaleMax = Math.max(1, sumMax || 1);
+
+                  return (
+                    <div key="main-agents" className="timeSeriesRow">
+                      <div className="timeSeriesRowLabel">{row.label}</div>
+                      <div className="timeSeriesSvgWrap">
+                        <svg className="timeSeriesSvg" viewBox={viewBox} preserveAspectRatio="none" aria-hidden="true">
+                          {Array.from({ length: Math.floor(buckets / minuteStep) + 1 }, (_, idx) => {
+                            const x = idx * minuteStep;
+                            if (x < 0 || x > buckets) return null;
+                            return (
+                              <line
+                                key={`g-${bucketStartMs + x * bucketMs}`}
+                                className="timeSeriesGridline"
+                                x1={x}
+                                x2={x}
+                                y1={0}
+                                y2={H}
+                              />
+                            );
+                          })}
+
+                          {Array.from({ length: buckets }, (_, i) => {
+                            const bucketMsAt = bucketStartMs + i * bucketMs;
+                            const barX = i + barInset;
+                            const rawSis = sisyphusValues[i];
+                            const rawPro = prometheusValues[i];
+                            const rawAtl = atlasValues[i];
+                            const sis = typeof rawSis === "number" && Number.isFinite(rawSis) ? Math.max(0, rawSis) : 0;
+                            const pro = typeof rawPro === "number" && Number.isFinite(rawPro) ? Math.max(0, rawPro) : 0;
+                            const atl = typeof rawAtl === "number" && Number.isFinite(rawAtl) ? Math.max(0, rawAtl) : 0;
+                            const segments = computeStackedSegments(
+                              {
+                                sisyphus: sis,
+                                prometheus: pro,
+                                atlas: atl,
+                              },
+                              scaleMax,
+                              chartHeight
+                            );
+
+                            if (segments.length === 0) return null;
+                            return segments.map((seg) => (
+                              <rect
+                                key={`main-agents-${bucketMsAt}-${seg.tone}`}
+                                className={`timeSeriesBar timeSeriesBar--${seg.tone}`}
+                                x={barX}
+                                y={padTop + seg.y}
+                                width={barW}
+                                height={seg.height}
+                              />
+                            ));
+                          })}
+                        </svg>
+                      </div>
+                    </div>
+                  );
+                }
 
                 const overlayValues = timeSeriesById.get(row.overlayId)?.values ?? [];
                 const baselineMax = row.baseline ? maxCount(overallValues) : 0;
