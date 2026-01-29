@@ -30,7 +30,7 @@ const store = createDashboardStore({
   pollIntervalMs: 2000,
 })
 
-app.route('/api', createApi({ store, storageRoot }))
+app.route('/api', createApi({ store, storageRoot, projectRoot: project }))
 
 const distRoot = join(import.meta.dir, '../../dist')
 

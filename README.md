@@ -42,7 +42,7 @@ oh-my-opencode-dashboard
 
 Options:
 
-- `--project <path>` (optional): project root that contains `.sisyphus/` (defaults to current working directory)
+- `--project <path>` (optional): project root used for plan lookup + session filtering (defaults to current working directory)
 - `--port <number>` (optional): default 51234
 
 ## Install (from source)
@@ -68,11 +68,20 @@ bun run start -- --project /absolute/path/to/your/project
 
 ## What It Reads (File-Based)
 
-- Project:
+- Project (optional; OhMyOpenCode plan tracking):
   - `.sisyphus/boulder.json`
   - Plan file at `boulder.active_plan`
 - OpenCode storage:
   - `${XDG_DATA_HOME ?? ~/.local/share}/opencode/storage/{session,message,part}`
+
+## Vanilla OpenCode (No OhMyOpenCode)
+
+You can use this dashboard with plain OpenCode (no `.sisyphus/`):
+
+- Plan progress will show as "not started" because `.sisyphus/boulder.json` is missing.
+- The session picker stays useful: it lists sessions found in OpenCode storage.
+- The tool-call inspector is metadata-only (e.g., tool name/type, timing/counts). It never renders prompts, tool args, tool output, or tool errors.
+- Session discovery uses an exact directory match: your `--project` path is resolved + realpath-normalized, then compared to each session `meta.directory` (also realpath-normalized). No prefix / "contains" matching.
 
 ## Privacy / Redaction
 
@@ -98,8 +107,10 @@ This dashboard is designed to avoid sensitive data:
 ## Troubleshooting
 
 - If the dashboard shows "Disconnected" in dev, make sure the API server is running and the UI is using the Vite proxy.
-- If plan progress stays empty, verify your target project has `.sisyphus/boulder.json`.
-- If sessions are not detected, verify OpenCode storage exists under `${XDG_DATA_HOME ?? ~/.local/share}/opencode/storage`.
+- If plan progress stays empty, either add `.sisyphus/boulder.json` (OhMyOpenCode) or treat it as expected in vanilla OpenCode.
+- If sessions are not detected, run OpenCode at least once in that exact project directory.
+- If sessions are not detected, ensure `--project` matches the real (resolved) path of the directory stored in the session metadata (symlinks matter).
+- If sessions are not detected, verify OpenCode storage exists under `${XDG_DATA_HOME ?? ~/.local/share}/opencode/storage` (check `XDG_DATA_HOME`).
 
 ## Publishing (Maintainers)
 

@@ -35,7 +35,7 @@ const store = createDashboardStore({
   pollIntervalMs: 2000,
 })
 
-app.route("/api", createApi({ store, storageRoot }))
+app.route("/api", createApi({ store, storageRoot, projectRoot: resolvedProjectPath }))
 
 Bun.serve({
   fetch: app.fetch,

@@ -15,6 +15,32 @@ function mkStorageRoot(): string {
   return root
 }
 
+function mkProjectRoot(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "omo-dashboard-project-"))
+}
+
+function writeSessionMeta(opts: {
+  storageRoot: string
+  projectId: string
+  sessionId: string
+  directory: string
+  title?: string | null
+  time: { created: number | null; updated: number | null }
+  parentId?: string | null
+}): void {
+  const sessionDir = path.join(opts.storageRoot, "session", opts.projectId)
+  fs.mkdirSync(sessionDir, { recursive: true })
+  const meta: Record<string, unknown> = {
+    id: opts.sessionId,
+    projectID: opts.projectId,
+    directory: opts.directory,
+    time: opts.time,
+  }
+  if (typeof opts.title === "string") meta.title = opts.title
+  if (opts.parentId) meta.parentID = opts.parentId
+  fs.writeFileSync(path.join(sessionDir, `${opts.sessionId}.json`), JSON.stringify(meta), "utf8")
+}
+
 function writeMessageMeta(opts: {
   storageRoot: string
   sessionId: string
@@ -93,8 +119,9 @@ const createStore = (): DashboardStore => ({
 describe('API Routes', () => {
   it('should return health check', async () => {
     const storageRoot = mkStorageRoot()
+    const projectRoot = mkProjectRoot()
     const store = createStore()
-    const api = createApi({ store, storageRoot })
+    const api = createApi({ store, storageRoot, projectRoot })
 
     const res = await api.request("/health")
     expect(res.status).toBe(200)
@@ -103,8 +130,9 @@ describe('API Routes', () => {
 
   it('should return dashboard data without sensitive keys', async () => {
     const storageRoot = mkStorageRoot()
+    const projectRoot = mkProjectRoot()
     const store = createStore()
-    const api = createApi({ store, storageRoot })
+    const api = createApi({ store, storageRoot, projectRoot })
 
     const res = await api.request("/dashboard")
     expect(res.status).toBe(200)
@@ -122,8 +150,9 @@ describe('API Routes', () => {
 
   it('should reject invalid session IDs', async () => {
     const storageRoot = mkStorageRoot()
+    const projectRoot = mkProjectRoot()
     const store = createStore()
-    const api = createApi({ store, storageRoot })
+    const api = createApi({ store, storageRoot, projectRoot })
 
     const res = await api.request("/tool-calls/not_valid!")
     expect(res.status).toBe(400)
@@ -132,8 +161,9 @@ describe('API Routes', () => {
 
   it('should return 404 for missing sessions', async () => {
     const storageRoot = mkStorageRoot()
+    const projectRoot = mkProjectRoot()
     const store = createStore()
-    const api = createApi({ store, storageRoot })
+    const api = createApi({ store, storageRoot, projectRoot })
 
     const res = await api.request("/tool-calls/ses_missing")
     expect(res.status).toBe(404)
@@ -142,9 +172,10 @@ describe('API Routes', () => {
 
   it('should return empty tool calls for existing sessions', async () => {
     const storageRoot = mkStorageRoot()
+    const projectRoot = mkProjectRoot()
     writeMessageMeta({ storageRoot, sessionId: "ses_empty", messageId: "msg_1", created: 1000 })
     const store = createStore()
-    const api = createApi({ store, storageRoot })
+    const api = createApi({ store, storageRoot, projectRoot })
 
     const res = await api.request("/tool-calls/ses_empty")
     expect(res.status).toBe(200)
@@ -160,6 +191,7 @@ describe('API Routes', () => {
 
   it('should redact tool call payload fields', async () => {
     const storageRoot = mkStorageRoot()
+    const projectRoot = mkProjectRoot()
     writeMessageMeta({ storageRoot, sessionId: "ses_redact", messageId: "msg_1", created: 1000 })
     writeToolPart({
       storageRoot,
@@ -175,7 +207,7 @@ describe('API Routes', () => {
       },
     })
     const store = createStore()
-    const api = createApi({ store, storageRoot })
+    const api = createApi({ store, storageRoot, projectRoot })
 
     const res = await api.request("/tool-calls/ses_redact")
     expect(res.status).toBe(200)
@@ -184,5 +216,85 @@ describe('API Routes', () => {
     expect(data.ok).toBe(true)
     expect(data.toolCalls.length).toBe(1)
     expect(hasSensitiveKeys(data)).toBe(false)
+  })
+
+  it('should return normalized sessions sorted deterministically', async () => {
+    const storageRoot = mkStorageRoot()
+    const projectRoot = mkProjectRoot()
+    const otherProjectRoot = mkProjectRoot()
+    const store = createStore()
+
+    writeSessionMeta({
+      storageRoot,
+      projectId: "proj_alpha",
+      sessionId: "ses_d",
+      directory: projectRoot,
+      title: "  Delta ",
+      time: { created: 5, updated: 100 },
+    })
+    writeSessionMeta({
+      storageRoot,
+      projectId: "proj_alpha",
+      sessionId: "ses_c",
+      directory: projectRoot,
+      title: "C",
+      time: { created: 20, updated: 50 },
+    })
+    writeSessionMeta({
+      storageRoot,
+      projectId: "proj_alpha",
+      sessionId: "ses_b",
+      directory: projectRoot,
+      title: "   ",
+      time: { created: 20, updated: 50 },
+    })
+    writeSessionMeta({
+      storageRoot,
+      projectId: "proj_alpha",
+      sessionId: "ses_a",
+      directory: projectRoot,
+      title: " Alpha ",
+      time: { created: 10, updated: 50 },
+    })
+    writeSessionMeta({
+      storageRoot,
+      projectId: "proj_alpha",
+      sessionId: "ses_z",
+      directory: projectRoot,
+      time: { created: null, updated: null },
+    })
+    writeSessionMeta({
+      storageRoot,
+      projectId: "proj_other",
+      sessionId: "ses_other",
+      directory: otherProjectRoot,
+      title: "Other",
+      time: { created: 1, updated: 999 },
+    })
+
+    const api = createApi({ store, storageRoot, projectRoot })
+    const res = await api.request("/sessions")
+    expect(res.status).toBe(200)
+
+    const data = await res.json()
+    expect(data.ok).toBe(true)
+    expect(data.sessions).toEqual([
+      { id: "ses_d", title: "Delta", createdAtMs: 5, updatedAtMs: 100 },
+      { id: "ses_c", title: "C", createdAtMs: 20, updatedAtMs: 50 },
+      { id: "ses_b", title: null, createdAtMs: 20, updatedAtMs: 50 },
+      { id: "ses_a", title: "Alpha", createdAtMs: 10, updatedAtMs: 50 },
+      { id: "ses_z", title: null, createdAtMs: 0, updatedAtMs: 0 },
+    ])
+  })
+
+  it('should return empty sessions when storage is missing', async () => {
+    const storageRoot = path.join(os.tmpdir(), `omo-dashboard-storage-missing-${Date.now()}`)
+    const projectRoot = mkProjectRoot()
+    const store = createStore()
+    const api = createApi({ store, storageRoot, projectRoot })
+
+    const res = await api.request("/sessions")
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, sessions: [] })
   })
 })

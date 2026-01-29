@@ -155,4 +155,39 @@ describe('toDashboardPayload', () => {
     // #then: should handle non-array steps gracefully
     expect(payload.planProgress.steps).toEqual([])
   })
+
+  it('should parse mainSession.sessionId from camel or snake keys', () => {
+    // #given: server JSON with main session id in camel and snake case
+    const camelJson = {
+      mainSession: {
+        agent: "sisyphus",
+        currentTool: "dashboard_start",
+        currentModel: "anthropic/claude-opus-4-5",
+        lastUpdatedLabel: "just now",
+        session: "test-session",
+        sessionId: "ses_main",
+        statusPill: "busy",
+      },
+    }
+
+    const snakeJson = {
+      main_session: {
+        agent: "sisyphus",
+        current_tool: "dashboard_start",
+        current_model: "anthropic/claude-opus-4-5",
+        last_updated: "just now",
+        session: "test-session",
+        session_id: "ses_snake",
+        status: "busy",
+      },
+    }
+
+    // #when: converting to dashboard payload
+    const camelPayload = toDashboardPayload(camelJson)
+    const snakePayload = toDashboardPayload(snakeJson)
+
+    // #then: sessionId should be preserved
+    expect(camelPayload.mainSession.sessionId).toBe("ses_main")
+    expect(snakePayload.mainSession.sessionId).toBe("ses_snake")
+  })
 })

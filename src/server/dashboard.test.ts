@@ -76,6 +76,7 @@ describe("buildDashboardPayload", () => {
       expect(payload.mainSession.currentTool).toBe("delegate_task")
       expect(payload.mainSession.agent).toBe("sisyphus")
       expect(payload.mainSession.currentModel).toBeNull()
+      expect(payload.mainSession.sessionId).toBe(sessionId)
       
       expect(payload.raw).not.toHaveProperty("prompt")
       expect(payload.raw).not.toHaveProperty("input")
@@ -149,6 +150,7 @@ describe("buildDashboardPayload", () => {
       expect(payload).toHaveProperty("timeSeries")
       expect(payload.raw).toHaveProperty("timeSeries")
       expect(payload.mainSession.currentModel).toBeNull()
+      expect(payload.mainSession.sessionId).toBeNull()
 
       const sensitiveKeys = ["prompt", "input", "output", "error", "state"]
 

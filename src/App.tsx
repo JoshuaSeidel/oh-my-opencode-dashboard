@@ -38,6 +38,18 @@ type ToolCallsResponse = {
   truncated?: boolean;
 };
 
+type SessionListItem = {
+  id: string;
+  title: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+type SessionsResponse = {
+  ok: boolean;
+  sessions: SessionListItem[];
+};
+
 type TimeSeriesTone = "muted" | "teal" | "red" | "green";
 
 type TimeSeriesSeriesId =
@@ -70,6 +82,7 @@ type DashboardPayload = {
     currentModel: string;
     lastUpdatedLabel: string;
     session: string;
+    sessionId: string | null;
     statusPill: string;
   };
   planProgress: {
@@ -200,6 +213,7 @@ const FALLBACK_DATA: DashboardPayload = {
     currentModel: "anthropic/claude-opus-4-5",
     lastUpdatedLabel: "just now",
     session: "qa-session",
+    sessionId: null,
     statusPill: "busy",
   },
   planProgress: {
@@ -357,6 +371,42 @@ function toToolCallsResponse(value: unknown): ToolCallsResponse | null {
   };
 }
 
+function toSessionListItem(value: unknown): SessionListItem | null {
+  if (!value || typeof value !== "object") return null;
+  const rec = value as Record<string, unknown>;
+
+  const id = toNonEmptyString(rec.id);
+  if (!id) return null;
+
+  const titleRaw = rec.title;
+  const title = titleRaw === null ? null : toNonEmptyString(titleRaw) ?? null;
+
+  const createdAtRaw = toFiniteNumber(rec.createdAtMs ?? rec.created_at_ms ?? rec.createdAt ?? rec.created_at);
+  const updatedAtRaw = toFiniteNumber(rec.updatedAtMs ?? rec.updated_at_ms ?? rec.updatedAt ?? rec.updated_at);
+
+  const createdAtMs = Math.max(0, Math.floor(createdAtRaw ?? 0));
+  const updatedAtMs = Math.max(0, Math.floor(updatedAtRaw ?? 0));
+
+  return {
+    id,
+    title,
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+function toSessionsResponse(value: unknown): SessionsResponse | null {
+  if (!value || typeof value !== "object") return null;
+  const rec = value as Record<string, unknown>;
+
+  const ok = typeof rec.ok === "boolean" ? rec.ok : false;
+  const sessionsRaw = rec.sessions;
+  if (!Array.isArray(sessionsRaw)) return null;
+
+  const sessions = sessionsRaw.map(toSessionListItem).filter((s): s is SessionListItem => s !== null);
+  return { ok, sessions };
+}
+
 export function formatBackgroundTaskTimelineCell(status: unknown, timeline: unknown): string {
   const s = typeof status === "string" ? status.trim().toLowerCase() : "";
   if (s === "unknown") return "";
@@ -472,6 +522,7 @@ function toDashboardPayload(json: unknown): DashboardPayload {
       currentModel: toNonEmptyString(main.currentModel ?? main.current_model) ?? "-",
       lastUpdatedLabel: String(main.lastUpdatedLabel ?? main.last_updated ?? "just now"),
       session: String(main.session ?? main.session_id ?? FALLBACK_DATA.mainSession.session),
+      sessionId: toNonEmptyString(main.sessionId ?? main.session_id),
       statusPill: String(main.statusPill ?? main.status ?? FALLBACK_DATA.mainSession.statusPill),
     },
     planProgress: {
@@ -498,6 +549,16 @@ export default function App() {
   const [soundUnlocked, setSoundUnlocked] = React.useState(false);
   const [planOpen, setPlanOpen] = React.useState(false);
   const [errorHint, setErrorHint] = React.useState<string | null>(null);
+
+  const [availableSessions, setAvailableSessions] = React.useState<SessionListItem[]>([]);
+  const [availableSessionsState, setAvailableSessionsState] = React.useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [availableSessionsLastFetchedAt, setAvailableSessionsLastFetchedAt] = React.useState<number | null>(null);
+  const availableSessionsStateRef = React.useRef<"idle" | "loading" | "ok" | "error">("idle");
+  const sessionsPollRef = React.useRef<number | null>(null);
+
+  const [toolCallsSessionMode, setToolCallsSessionMode] = React.useState<"auto" | "none" | "manual">("none");
+  const [manualToolCallsSessionId, setManualToolCallsSessionId] = React.useState<string>("");
+  const userSelectedToolCallsSessionRef = React.useRef(false);
 
   const [expandedBgTaskIds, setExpandedBgTaskIds] = React.useState<Set<string>>(() => new Set());
   const [toolCallsBySession, setToolCallsBySession] = React.useState<
@@ -526,6 +587,21 @@ export default function App() {
   React.useEffect(() => {
     soundEnabledRef.current = soundEnabled;
   }, [soundEnabled]);
+
+  React.useEffect(() => {
+    availableSessionsStateRef.current = availableSessionsState;
+  }, [availableSessionsState]);
+
+  React.useEffect(() => {
+    if (userSelectedToolCallsSessionRef.current) return;
+
+    const hasMainSessionId = Boolean(data.mainSession.sessionId);
+    setToolCallsSessionMode((prev) => {
+      if (prev === "manual") return prev;
+      if (hasMainSessionId) return "auto";
+      return prev === "auto" ? "auto" : "none";
+    });
+  }, [data.mainSession.sessionId]);
 
   React.useEffect(() => {
     try {
@@ -629,6 +705,53 @@ export default function App() {
   const rawJsonText = React.useMemo(() => {
     return JSON.stringify(data.raw, null, 2);
   }, [data.raw]);
+
+  const fetchAvailableSessions = React.useCallback(async (opts: { force: boolean }) => {
+    if (!opts.force && availableSessionsStateRef.current === "loading") return;
+
+    setAvailableSessionsState("loading");
+    try {
+      const raw = await safeFetchJson("/api/sessions");
+      const parsed = toSessionsResponse(raw);
+      if (!parsed?.ok) throw new Error("sessions not ok");
+      setAvailableSessions(parsed.sessions);
+      setAvailableSessionsState("ok");
+      setAvailableSessionsLastFetchedAt(Date.now());
+    } catch {
+      setAvailableSessionsState("error");
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void fetchAvailableSessions({ force: true });
+  }, [fetchAvailableSessions]);
+
+  React.useEffect(() => {
+    if (sessionsPollRef.current) {
+      window.clearTimeout(sessionsPollRef.current);
+      sessionsPollRef.current = null;
+    }
+
+    if (!connected) return;
+
+    let alive = true;
+    const pollMs = 30_000;
+
+    async function tick() {
+      if (!alive) return;
+      await fetchAvailableSessions({ force: false });
+      if (!alive) return;
+      sessionsPollRef.current = window.setTimeout(tick, pollMs);
+    }
+
+    tick();
+
+    return () => {
+      alive = false;
+      if (sessionsPollRef.current) window.clearTimeout(sessionsPollRef.current);
+      sessionsPollRef.current = null;
+    };
+  }, [connected, fetchAvailableSessions]);
 
   React.useEffect(() => {
     let alive = true;
@@ -782,6 +905,37 @@ export default function App() {
   const bucketStartMs = data.timeSeries.anchorMs - (buckets - 1) * bucketMs;
 
   const overallValues = timeSeriesById.get("overall-main")?.values ?? [];
+
+  const manualToolCallsSessionIdTrimmed = React.useMemo(() => {
+    return toNonEmptyString(manualToolCallsSessionId);
+  }, [manualToolCallsSessionId]);
+
+  const effectiveToolCallsSessionId = React.useMemo(() => {
+    if (toolCallsSessionMode === "none") return null;
+    if (toolCallsSessionMode === "auto") return data.mainSession.sessionId;
+    return manualToolCallsSessionIdTrimmed;
+  }, [toolCallsSessionMode, data.mainSession.sessionId, manualToolCallsSessionIdTrimmed]);
+
+  React.useEffect(() => {
+    if (toolCallsSessionMode === "none") return;
+    if (!effectiveToolCallsSessionId) return;
+    void fetchToolCalls(effectiveToolCallsSessionId, { force: false });
+  }, [toolCallsSessionMode, effectiveToolCallsSessionId]);
+
+  const manualSessionMissingFromList = React.useMemo(() => {
+    if (toolCallsSessionMode !== "manual") return false;
+    const id = manualToolCallsSessionIdTrimmed;
+    if (!id) return false;
+    return !availableSessions.some((s) => s.id === id);
+  }, [toolCallsSessionMode, manualToolCallsSessionIdTrimmed, availableSessions]);
+
+  const toolCallsEntry = effectiveToolCallsSessionId ? toolCallsBySession.get(effectiveToolCallsSessionId) : null;
+  const toolCalls = toolCallsEntry?.data?.ok ? toolCallsEntry.data.toolCalls : [];
+  const toolCallsShowCapped = Boolean(toolCallsEntry?.data?.truncated);
+  const toolCallsCaps = toolCallsEntry?.data?.caps;
+  const toolCallsShowLoading = toolCallsEntry?.state === "loading";
+  const toolCallsShowError = toolCallsEntry?.state === "error" && !toolCallsEntry?.data?.ok;
+  const toolCallsEmpty = effectiveToolCallsSessionId ? toolCalls.length === 0 && !toolCallsShowLoading && !toolCallsShowError : true;
 
   return (
     <div className="page">
@@ -1107,6 +1261,148 @@ export default function App() {
 
           <section className="card">
             <div className="cardHeader">
+              <h2>Tool-call inspector</h2>
+              <span className="pill pill-sand">
+                <span className="pillDot" aria-hidden="true" />
+                metadata only
+              </span>
+            </div>
+
+            <div className="kv">
+              <div className="kvRow">
+                <div className="kvKey">SESSION MODE</div>
+                <div className="kvVal">
+                  <div className="fieldRow">
+                    <select
+                      className="field"
+                      value={toolCallsSessionMode}
+                      onChange={(e) => {
+                        userSelectedToolCallsSessionRef.current = true;
+                        const next = e.currentTarget.value as "auto" | "none" | "manual";
+                        setToolCallsSessionMode(next);
+                        if (next === "manual" && !toNonEmptyString(manualToolCallsSessionId)) {
+                          const seed = data.mainSession.sessionId;
+                          if (seed) setManualToolCallsSessionId(seed);
+                        }
+                      }}
+                      aria-label="Tool-call session mode"
+                    >
+                      <option value="auto">Auto (current main session)</option>
+                      <option value="none">None</option>
+                      <option value="manual">Manual session id</option>
+                    </select>
+
+                    {toolCallsSessionMode === "manual" ? (
+                      <>
+                        <input
+                          className="field mono"
+                          value={manualToolCallsSessionId}
+                          onChange={(e) => {
+                            userSelectedToolCallsSessionRef.current = true;
+                            setManualToolCallsSessionId(e.currentTarget.value);
+                          }}
+                          placeholder="ses_..."
+                          list="omo-dashboard-sessions"
+                          aria-label="Manual session id"
+                        />
+                        <datalist id="omo-dashboard-sessions">
+                          {availableSessions.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.title ? `${s.title} (${s.id})` : s.id}
+                            </option>
+                          ))}
+                        </datalist>
+                      </>
+                    ) : null}
+
+                    <button className="button" type="button" onClick={() => void fetchAvailableSessions({ force: true })}>
+                      Sessions {availableSessions.length ? `(${availableSessions.length})` : ""}
+                    </button>
+                    <button
+                      className="button"
+                      type="button"
+                      disabled={!effectiveToolCallsSessionId}
+                      onClick={() => {
+                        if (!effectiveToolCallsSessionId) return;
+                        void fetchToolCalls(effectiveToolCallsSessionId, { force: true });
+                      }}
+                      title={effectiveToolCallsSessionId ? "Refresh tool calls" : "No session selected"}
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  {toolCallsSessionMode === "none" ? (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                      Disabled. Select Auto (if a main session exists) or Manual.
+                    </div>
+                  ) : null}
+                  {toolCallsSessionMode === "auto" && !data.mainSession.sessionId ? (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                      No main session id detected yet.
+                    </div>
+                  ) : null}
+                  {toolCallsSessionMode === "manual" && manualSessionMissingFromList ? (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                      Selected session id is not in the refreshed list. Keeping it selected.
+                    </div>
+                  ) : null}
+                  {availableSessionsState === "error" ? (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                      Sessions list unavailable.
+                    </div>
+                  ) : null}
+                  {availableSessionsLastFetchedAt ? (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                      Sessions refreshed: <span className="mono">{formatTime(availableSessionsLastFetchedAt)}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="divider" />
+
+            <section aria-label="Tool calls" className="bgTaskDetail">
+              <div className="mono muted bgTaskDetailHeader">
+                Tool calls (metadata only){toolCallsShowLoading && toolCalls.length > 0 ? " - refreshing" : ""}
+                {toolCallsShowCapped ? ` - capped${toolCallsCaps ? ` (max ${toolCallsCaps.maxMessages} messages / ${toolCallsCaps.maxToolCalls} tool calls)` : ""}` : ""}
+              </div>
+
+              {toolCallsSessionMode === "none" ? (
+                <div className="muted bgTaskDetailEmpty">Select a session mode to load tool calls.</div>
+              ) : !effectiveToolCallsSessionId ? (
+                <div className="muted bgTaskDetailEmpty">No session id selected.</div>
+              ) : toolCallsShowError ? (
+                <div className="muted bgTaskDetailEmpty">Tool calls unavailable.</div>
+              ) : toolCallsShowLoading && toolCalls.length === 0 ? (
+                <div className="muted bgTaskDetailEmpty">Loading tool calls...</div>
+              ) : toolCallsEmpty ? (
+                <div className="muted bgTaskDetailEmpty">No tool calls recorded.</div>
+              ) : (
+                <div className="bgTaskToolCallsGrid">
+                  {toolCalls.map((c) => (
+                    <div key={`${effectiveToolCallsSessionId}-${c.callId}`} className="bgTaskToolCall">
+                      <div className="bgTaskToolCallRow">
+                        <div className="mono bgTaskToolCallTool" title={c.tool}>
+                          {c.tool}
+                        </div>
+                        <div className="mono muted bgTaskToolCallStatus" title={c.status}>
+                          {c.status}
+                        </div>
+                      </div>
+                      <div className="mono muted bgTaskToolCallTime">{formatTime(c.createdAtMs)}</div>
+                      <div className="mono muted bgTaskToolCallId" title={c.callId}>
+                        {c.callId}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </section>
+
+          <section className="card">
+            <div className="cardHeader">
               <h2>Background tasks</h2>
               <span className="badge">
                 {data.backgroundTasks.length}
@@ -1126,6 +1422,13 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
+                  {data.backgroundTasks.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="muted" style={{ padding: 16 }}>
+                        No background tasks detected yet. When you run background agents, they will appear here.
+                      </td>
+                    </tr>
+                  ) : null}
                   {data.backgroundTasks.map((t) => {
                     const expanded = expandedBgTaskIds.has(t.id);
                     const sessionId = toNonEmptyString(t.sessionId);

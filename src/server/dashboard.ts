@@ -12,6 +12,7 @@ export type DashboardPayload = {
     currentTool: string
     lastUpdatedLabel: string
     session: string
+    sessionId: string | null
     statusPill: string
   }
   planProgress: {
@@ -143,6 +144,7 @@ export function buildDashboardPayload(opts: {
       currentTool: main.currentTool ?? "-",
       lastUpdatedLabel: formatIso(main.lastUpdated),
       session: main.sessionLabel,
+      sessionId: sessionId ?? null,
       statusPill: mainStatusPill(main.status),
     },
     planProgress: {
