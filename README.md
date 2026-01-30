@@ -1,6 +1,6 @@
 # Oh My OpenCode Dashboard
 
-Local-only, read-only dashboard for viewing OhMyOpenCode agent progress.
+Local-only, read-only dashboard for viewing OpenCode & OhMyOpenCode agent progress.
 
 ![Dashboard GUI](./gui.png)
 
@@ -137,8 +137,6 @@ One-time setup (browser):
 
 1. Open npm for `oh-my-opencode-dashboard` -> `Settings` -> `Trusted Publisher` -> select `GitHub Actions`.
 2. Configure:
-   - Organization/user: `code-yeongyu`
-   - Repository: `oh-my-opencode`
    - Workflow filename: `test-and-publish.yml`
    - Environment name: leave blank unless you use GitHub Environments
 
