@@ -80,6 +80,45 @@ describe("buildDashboardPayload", () => {
       
       expect(payload.raw).not.toHaveProperty("prompt")
       expect(payload.raw).not.toHaveProperty("input")
+
+      expect(payload).toHaveProperty("mainSessionTasks")
+      expect((payload as any).mainSessionTasks).toEqual([
+        {
+          id: "main-session",
+          description: "Main session",
+          subline: sessionId,
+          agent: "sisyphus",
+          lastModel: null,
+          status: "running",
+          toolCalls: 1,
+          lastTool: "delegate_task",
+          timeline: "1970-01-01T00:00:01Z: 1s",
+          sessionId,
+        },
+      ])
+
+      expect(payload.raw).toHaveProperty("mainSessionTasks.0.lastTool", "delegate_task")
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true })
+      fs.rmSync(projectRoot, { recursive: true, force: true })
+    }
+  })
+
+  it("includes mainSessionTasks in raw payload when no sessions exist", () => {
+    const storageRoot = mkStorageRoot()
+    const storage = getStorageRoots(storageRoot)
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "omo-project-"))
+
+    try {
+      const payload = buildDashboardPayload({
+        projectRoot,
+        storage,
+        nowMs: 2000,
+      })
+
+      expect(payload).toHaveProperty("mainSessionTasks")
+      expect((payload as any).mainSessionTasks).toEqual([])
+      expect(payload.raw).toHaveProperty("mainSessionTasks")
     } finally {
       fs.rmSync(storageRoot, { recursive: true, force: true })
       fs.rmSync(projectRoot, { recursive: true, force: true })

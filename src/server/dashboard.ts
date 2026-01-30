@@ -4,6 +4,7 @@ import { readBoulderState, readPlanProgress, readPlanSteps, type PlanStep } from
 import { deriveBackgroundTasks } from "../ingest/background-tasks"
 import { deriveTimeSeriesActivity, type TimeSeriesPayload } from "../ingest/timeseries"
 import { getMainSessionView, getStorageRoots, pickActiveSessionId, readMainSessionMetas, type MainSessionView, type OpenCodeStorageRoots, type SessionMetadata } from "../ingest/session"
+import { deriveToolCalls } from "../ingest/tool-calls"
 
 export type DashboardPayload = {
   mainSession: {
@@ -26,6 +27,18 @@ export type DashboardPayload = {
   backgroundTasks: Array<{
     id: string
     description: string
+    agent: string
+    lastModel: string | null
+    status: string
+    toolCalls: number
+    lastTool: string
+    timeline: string
+    sessionId: string | null
+  }>
+  mainSessionTasks: Array<{
+    id: string
+    description: string
+    subline?: string
     agent: string
     lastModel: string | null
     status: string
@@ -93,6 +106,33 @@ function mainStatusPill(status: string): string {
   return "unknown"
 }
 
+function formatIsoNoMs(ts: number): string {
+  const iso = new Date(ts).toISOString()
+  return iso.replace(/\.\d{3}Z$/, "Z")
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const seconds = totalSeconds % 60
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const minutes = totalMinutes % 60
+  const totalHours = Math.floor(totalMinutes / 60)
+  const hours = totalHours % 24
+  const days = Math.floor(totalHours / 24)
+
+  if (days > 0) return hours > 0 ? `${days}d${hours}h` : `${days}d`
+  if (totalHours > 0) return minutes > 0 ? `${totalHours}h${minutes}m` : `${totalHours}h`
+  if (totalMinutes > 0) return seconds > 0 ? `${totalMinutes}m${seconds}s` : `${totalMinutes}m`
+  return `${seconds}s`
+}
+
+function formatTimeline(startAt: number | null, endAtMs: number): string {
+  if (typeof startAt !== "number") return ""
+  const start = formatIsoNoMs(startAt)
+  const elapsed = formatElapsed(endAtMs - startAt)
+  return `${start}: ${elapsed}`
+}
+
 export function buildDashboardPayload(opts: {
   projectRoot: string
   storage: OpenCodeStorageRoots
@@ -137,6 +177,41 @@ export function buildDashboardPayload(opts: {
   const mainCurrentModel = "currentModel" in main
     ? (main as MainSessionView).currentModel
     : null
+
+  const mainSessionTasks = (() => {
+    if (!sessionId) return []
+
+    const mainStatus = main.status
+    const status = mainStatus === "running_tool" || mainStatus === "thinking" || mainStatus === "busy"
+      ? "running"
+      : mainStatus === "idle"
+        ? "idle"
+        : "unknown"
+
+    const { toolCalls } = deriveToolCalls({
+      storage: opts.storage,
+      sessionId,
+    })
+
+    const startAt = sessionMeta?.time?.created ?? null
+    const endAtMs = status === "running" ? nowMs : (main.lastUpdated ?? nowMs)
+
+    return [
+      {
+        id: "main-session",
+        description: "Main session",
+        subline: sessionId,
+        agent: main.agent,
+        lastModel: mainCurrentModel,
+        status,
+        toolCalls: toolCalls.length,
+        lastTool: toolCalls[0]?.tool ?? "-",
+        timeline: formatTimeline(startAt, endAtMs),
+        sessionId,
+      },
+    ]
+  })()
+
   const payload: DashboardPayload = {
     mainSession: {
       agent: main.agent,
@@ -166,6 +241,7 @@ export function buildDashboardPayload(opts: {
       timeline: typeof t.timeline === "string" ? t.timeline : "",
       sessionId: t.sessionId ?? null,
     })),
+    mainSessionTasks,
     timeSeries,
     raw: null,
   }
@@ -174,6 +250,7 @@ export function buildDashboardPayload(opts: {
     mainSession: payload.mainSession,
     planProgress: payload.planProgress,
     backgroundTasks: payload.backgroundTasks,
+    mainSessionTasks: payload.mainSessionTasks,
     timeSeries: payload.timeSeries,
   }
   return payload

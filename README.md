@@ -79,8 +79,8 @@ bun run start -- --project /absolute/path/to/your/project
 You can use this dashboard with plain OpenCode (no `.sisyphus/`):
 
 - Plan progress will show as "not started" because `.sisyphus/boulder.json` is missing.
-- The session picker stays useful: it lists sessions found in OpenCode storage.
-- The tool-call inspector is metadata-only (e.g., tool name/type, timing/counts). It never renders prompts, tool args, tool output, or tool errors.
+- Tool calls shown in the UI are for the detected main session only (no session picker).
+- Tool-call view is metadata-only (e.g., tool name/status/timing/counts). It never renders prompts, tool args, tool output, or tool errors.
 - Session discovery uses an exact directory match: your `--project` path is resolved + realpath-normalized, then compared to each session `meta.directory` (also realpath-normalized). No prefix / "contains" matching.
 
 ## Privacy / Redaction
