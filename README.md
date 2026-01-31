@@ -18,6 +18,7 @@ Local-only, read-only dashboard for viewing OpenCode & OhMyOpenCode agent progre
 - Main session task row: a single roll-up row for the detected main session.
 - Background tasks: best-effort inferred from `delegate_task` tool parts; expandable.
 - Tool calls (metadata only): per-session tool name/status/timestamp, capped for safety.
+- Token usage: totals with an expandable per-model breakdown.
 - Time-series activity: last 5 minutes of tool-call counts (main agents + background total).
 - Sound notifications (optional): dings when progress advances / question appears / waiting for user.
 - Raw JSON (redacted): copy the API payload that the UI is rendering.
