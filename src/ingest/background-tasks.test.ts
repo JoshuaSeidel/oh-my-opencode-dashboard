@@ -14,6 +14,137 @@ function mkStorageRoot(): string {
 }
 
 describe("deriveBackgroundTasks", () => {
+  it("correlates background session using tool-call start time (not message created time)", () => {
+    const storageRoot = mkStorageRoot()
+    const storage = getStorageRoots(storageRoot)
+    const mainSessionId = "ses_main"
+
+    const msgDir = path.join(storage.message, mainSessionId)
+    fs.mkdirSync(msgDir, { recursive: true })
+    const messageID = "msg_1"
+    fs.writeFileSync(
+      path.join(msgDir, `${messageID}.json`),
+      JSON.stringify({
+        id: messageID,
+        sessionID: mainSessionId,
+        role: "assistant",
+        time: { created: 1000 },
+      }),
+      "utf8"
+    )
+
+    // Tool part starts much later than message created.
+    const partDir = path.join(storage.part, messageID)
+    fs.mkdirSync(partDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(partDir, "part_1.json"),
+      JSON.stringify({
+        id: "part_1",
+        sessionID: mainSessionId,
+        messageID,
+        type: "tool",
+        callID: "call_1",
+        tool: "delegate_task",
+        state: {
+          status: "completed",
+          input: {
+            run_in_background: true,
+            description: "Late-start background",
+            subagent_type: "explore",
+          },
+          time: { start: 200_000, end: 200_010 },
+        },
+      }),
+      "utf8"
+    )
+
+    const projectID = "proj"
+    const sessDir = path.join(storage.session, projectID)
+    fs.mkdirSync(sessDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(sessDir, "ses_child.json"),
+      JSON.stringify({
+        id: "ses_child",
+        projectID,
+        directory: "/tmp/project",
+        title: "Background: Late-start background",
+        parentID: mainSessionId,
+        time: { created: 200_030, updated: 200_030 },
+      }),
+      "utf8"
+    )
+
+    const rows = deriveBackgroundTasks({ storage, mainSessionId })
+    expect(rows.length).toBe(1)
+    expect(rows[0].sessionId).toBe("ses_child")
+  })
+
+  it("correlates background session even when description is truncated for UI", () => {
+    const storageRoot = mkStorageRoot()
+    const storage = getStorageRoots(storageRoot)
+    const mainSessionId = "ses_main"
+
+    const msgDir = path.join(storage.message, mainSessionId)
+    fs.mkdirSync(msgDir, { recursive: true })
+    const messageID = "msg_1"
+    fs.writeFileSync(
+      path.join(msgDir, `${messageID}.json`),
+      JSON.stringify({
+        id: messageID,
+        sessionID: mainSessionId,
+        role: "assistant",
+        time: { created: 1000 },
+      }),
+      "utf8"
+    )
+
+    const longDescription = "X".repeat(200)
+    const partDir = path.join(storage.part, messageID)
+    fs.mkdirSync(partDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(partDir, "part_1.json"),
+      JSON.stringify({
+        id: "part_1",
+        sessionID: mainSessionId,
+        messageID,
+        type: "tool",
+        callID: "call_1",
+        tool: "delegate_task",
+        state: {
+          status: "completed",
+          input: {
+            run_in_background: true,
+            description: longDescription,
+            subagent_type: "explore",
+          },
+          time: { start: 1100, end: 1110 },
+        },
+      }),
+      "utf8"
+    )
+
+    const projectID = "proj"
+    const sessDir = path.join(storage.session, projectID)
+    fs.mkdirSync(sessDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(sessDir, "ses_child.json"),
+      JSON.stringify({
+        id: "ses_child",
+        projectID,
+        directory: "/tmp/project",
+        title: `Background: ${longDescription}`,
+        parentID: mainSessionId,
+        time: { created: 1120, updated: 1120 },
+      }),
+      "utf8"
+    )
+
+    const rows = deriveBackgroundTasks({ storage, mainSessionId })
+    expect(rows.length).toBe(1)
+    expect(rows[0].sessionId).toBe("ses_child")
+    expect(rows[0].description.length).toBeLessThanOrEqual(120)
+  })
+
   it("extracts delegate_task background calls and correlates child sessions", () => {
     const storageRoot = mkStorageRoot()
     const storage = getStorageRoots(storageRoot)

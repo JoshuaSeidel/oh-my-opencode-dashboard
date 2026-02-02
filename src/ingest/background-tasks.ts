@@ -21,6 +21,17 @@ export type BackgroundTaskRow = {
 const DESCRIPTION_MAX = 120
 const AGENT_MAX = 30
 
+function readStartTimeFromToolPart(part: unknown): number | null {
+  if (!part || typeof part !== "object") return null
+  const rec = part as Record<string, unknown>
+  const state = rec.state
+  if (!state || typeof state !== "object") return null
+  const time = (state as Record<string, unknown>).time
+  if (!time || typeof time !== "object") return null
+  const start = (time as Record<string, unknown>).start
+  return typeof start === "number" && Number.isFinite(start) ? start : null
+}
+
 function clampString(value: unknown, maxLen: number): string | null {
   if (typeof value !== "string") return null
   const s = value.trim()
@@ -259,8 +270,8 @@ export function deriveBackgroundTasks(opts: {
   // Iterate newest-first to cap list and keep latest tasks.
   const ordered = [...metas].sort((a, b) => (b.time?.created ?? 0) - (a.time?.created ?? 0))
   for (const meta of ordered) {
-    const startedAt = meta.time?.created ?? null
-    if (typeof startedAt !== "number") continue
+    const messageCreatedAt = meta.time?.created ?? null
+    if (typeof messageCreatedAt !== "number") continue
 
     const parts = readToolPartsForMessage(opts.storage, meta.id, fsLike)
     for (const part of parts) {
@@ -273,7 +284,15 @@ export function deriveBackgroundTasks(opts: {
       const runInBackground = (input as Record<string, unknown>).run_in_background
       if (runInBackground !== true && runInBackground !== false) continue
 
-      const description = clampString((input as Record<string, unknown>).description, DESCRIPTION_MAX)
+      const rawDescription = (() => {
+        const v = (input as Record<string, unknown>).description
+        if (typeof v !== "string") return null
+        const s = v.trim()
+        return s.length > 0 ? s : null
+      })()
+      if (!rawDescription) continue
+
+      const description = clampString(rawDescription, DESCRIPTION_MAX)
       if (!description) continue
 
       const subagentType = clampString((input as Record<string, unknown>).subagent_type, AGENT_MAX)
@@ -281,12 +300,15 @@ export function deriveBackgroundTasks(opts: {
       const agent = subagentType ?? (category ? `sisyphus-junior (${category})` : "unknown")
 
       let backgroundSessionId: string | null = null
+
+      // Use tool-call start time when available; message meta created can be much earlier.
+      const startedAt = readStartTimeFromToolPart(part) ?? messageCreatedAt
       
       if (runInBackground) {
         backgroundSessionId = findBackgroundSessionId({
           allSessionMetas,
           parentSessionId: opts.mainSessionId,
-          description,
+          description: rawDescription,
           startedAt,
         })
       } else {
@@ -304,7 +326,7 @@ export function deriveBackgroundTasks(opts: {
           backgroundSessionId = findBackgroundSessionId({
             allSessionMetas,
             parentSessionId: opts.mainSessionId,
-            description,
+            description: rawDescription,
             startedAt,
           })
           
@@ -312,7 +334,7 @@ export function deriveBackgroundTasks(opts: {
             backgroundSessionId = findTaskSessionId({
               allSessionMetas,
               parentSessionId: opts.mainSessionId,
-              description,
+              description: rawDescription,
               startedAt,
             })
           }
