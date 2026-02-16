@@ -476,7 +476,7 @@ export function deriveBackgroundTasks(opts: {
   for (const sessionMeta of unmatchedChildSessions) {
     const sessionId = sessionMeta.id
     const stats = readBackgroundStats(sessionId)
-    
+
     // Only include sessions with actual activity to avoid phantom sessions
     if (stats.toolCalls <= 0) continue
 
