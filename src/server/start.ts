@@ -6,7 +6,14 @@ import { parseArgs } from 'util'
 import { createApi } from "./api"
 import { createDashboardStore, type DashboardStore } from "./dashboard"
 import { getLegacyStorageRootForBackend, selectStorageBackend } from "../ingest/storage-backend"
-import { addOrUpdateSource } from "../ingest/sources-registry"
+import { addOrUpdateSource, listSources } from "../ingest/sources-registry"
+
+function isBunxInvocation(argv: string[]): boolean {
+  if (process.env.BUN_INSTALL_CACHE_DIR) return true
+  const scriptPath = argv[1] ?? ""
+  const normalized = scriptPath.replace(/\\/g, "/")
+  return normalized.includes("/.bun/install/cache/")
+}
 
 const { values, positionals } = parseArgs({
   args: Bun.argv,
@@ -58,6 +65,11 @@ const app = new Hono()
 
 const storageBackend = selectStorageBackend()
 const storageRoot = getLegacyStorageRootForBackend(storageBackend)
+
+if (isBunxInvocation(Bun.argv) && storageBackend.kind === "sqlite" && listSources(storageRoot).length === 0) {
+  console.log("Please make sure you have added directories you want to track (OpenCode SQLite update). Run:")
+  console.log('bunx oh-my-opencode-dashboard@latest add --name "My Project"')
+}
 
 const store = createDashboardStore({
   projectRoot: project,

@@ -30,19 +30,28 @@ Local-only, read-only dashboard for viewing OpenCode & OhMyOpenCode agent progre
 
 ## Install (npm)
 
-Run without installing globally (from your target project directory):
+> [!IMPORTANT]
+> If the dashboard looks empty after the OpenCode SQLite update, register your project as a source first.
+>
+> Run this from your project directory:
+>
+> ```bash
+> bunx oh-my-opencode-dashboard@latest add --name "My Project"
+> ```
+
+Then start the dashboard:
 
 ```bash
 bunx oh-my-opencode-dashboard@latest
 ```
 
-Register additional project sources (optional; enables the source dropdown in the UI):
+Register additional project sources (enables the source dropdown in the UI):
 
 ```bash
 bunx oh-my-opencode-dashboard@latest add --name "My Project"
 ```
 
-Or run the dashboard for a different project path:
+Or register a different project path:
 
 ```bash
 bunx oh-my-opencode-dashboard@latest add --name "My Project" --project /absolute/path/to/your/project
