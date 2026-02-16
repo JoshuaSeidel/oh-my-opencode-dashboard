@@ -342,6 +342,7 @@ export function deriveBackgroundTasks(opts: {
   }
 
   const rows: BackgroundTaskRow[] = []
+  const matchedSessionIds = new Set<string>()
 
   // Iterate newest-first to cap list and keep latest tasks.
   const ordered = [...metas].sort((a, b) => (b.time?.created ?? 0) - (a.time?.created ?? 0))
@@ -423,6 +424,10 @@ export function deriveBackgroundTasks(opts: {
         }
       }
 
+      if (backgroundSessionId) {
+        matchedSessionIds.add(backgroundSessionId)
+      }
+
       const stats = backgroundSessionId
         ? readBackgroundStats(backgroundSessionId)
         : { toolCalls: 0, lastTool: null, lastUpdateAt: startedAt }
@@ -454,6 +459,72 @@ export function deriveBackgroundTasks(opts: {
     }
 
     if (rows.length >= 50) break
+  }
+
+  // Add child sessions that weren't matched by any tool call
+  // This ensures all background tasks show up even if the tool call is missing or outside the 200-message window
+  // Only include sessions with activity (toolCalls > 0) to avoid phantom sessions
+  const unmatchedChildSessions = allSessionMetas
+    .filter((meta) => meta.parentID === opts.mainSessionId && !matchedSessionIds.has(meta.id))
+    .sort((a, b) => {
+      const at = a.time?.updated ?? a.time?.created ?? 0
+      const bt = b.time?.updated ?? b.time?.created ?? 0
+      return bt - at
+    })
+    .slice(0, Math.max(0, 50 - rows.length))
+
+  for (const sessionMeta of unmatchedChildSessions) {
+    const sessionId = sessionMeta.id
+    const stats = readBackgroundStats(sessionId)
+
+    // Only include sessions with actual activity to avoid phantom sessions
+    if (stats.toolCalls <= 0) continue
+
+    const lastModel = readBackgroundModel(sessionId)
+    const createdAt = sessionMeta.time?.created ?? nowMs
+    const updatedAt = sessionMeta.time?.updated ?? createdAt
+
+    // Derive description and agent from session title
+    const title = typeof sessionMeta.title === "string" ? sessionMeta.title : ""
+    let description = title
+    let agent = "unknown"
+
+    // Try to parse common title formats
+    const bgMatch = title.match(/^Background: (.+)$/)
+    const taskMatch = title.match(/^Task: (.+)$/)
+    const subagentMatch = title.match(/^(.+) \(@(\w+) subagent\)$/)
+
+    if (bgMatch) {
+      description = bgMatch[1]
+    } else if (taskMatch) {
+      description = taskMatch[1]
+    } else if (subagentMatch) {
+      description = subagentMatch[1]
+      agent = subagentMatch[2]
+    }
+
+    description = clampString(description, DESCRIPTION_MAX) || title || "Background task"
+
+    let status: BackgroundTaskRow["status"] = "unknown"
+    if (stats.lastUpdateAt && nowMs - stats.lastUpdateAt <= 15_000) {
+      status = "running"
+    } else if (stats.toolCalls > 0) {
+      status = "completed"
+    }
+
+    const timelineEndMs = status === "completed" ? (stats.lastUpdateAt ?? updatedAt) : nowMs
+
+    rows.push({
+      id: `session-${sessionId}`,
+      description,
+      agent,
+      status,
+      toolCalls: stats.toolCalls,
+      lastTool: stats.lastTool,
+      lastModel,
+      timeline: status === "unknown" ? "" : formatTimeline(createdAt, timelineEndMs),
+      sessionId,
+    })
   }
 
   return rows
