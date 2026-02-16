@@ -129,14 +129,53 @@ export function pickActiveSessionId(opts: {
   storage: OpenCodeStorageRoots
   boulderSessionIds?: string[]
 }): string | null {
+  const metas = readMainSessionMetas(opts.storage.session, opts.projectRoot)
+  const metaById = new Map(metas.map((m) => [m.id, m] as const))
+
+  let bestId: string | null = metas[0]?.id ?? null
+  let bestUpdated = bestId ? (metaById.get(bestId)?.time.updated ?? -Infinity) : -Infinity
+  let bestIsBoulder = false
+
+  const consider = (candidateId: string, updatedAt: number, isBoulder: boolean): void => {
+    if (!bestId) {
+      bestId = candidateId
+      bestUpdated = updatedAt
+      bestIsBoulder = isBoulder
+      return
+    }
+    if (updatedAt > bestUpdated) {
+      bestId = candidateId
+      bestUpdated = updatedAt
+      bestIsBoulder = isBoulder
+      return
+    }
+    if (updatedAt === bestUpdated && isBoulder && !bestIsBoulder) {
+      bestId = candidateId
+      bestUpdated = updatedAt
+      bestIsBoulder = true
+    }
+  }
+
   const ids = opts.boulderSessionIds ?? []
   for (let i = ids.length - 1; i >= 0; i--) {
     const id = ids[i]
-    if (sessionExists(opts.storage.message, id)) return id
+    if (!sessionExists(opts.storage.message, id)) continue
+
+    const meta = metaById.get(id)
+    if (meta) {
+      consider(id, meta.time.updated ?? meta.time.created ?? 0, true)
+      continue
+    }
+
+    if (metas.length === 0) {
+      const messageDir = getMessageDir(opts.storage.message, id)
+      const recent = readMostRecentMessageMeta(messageDir, 200)
+      const created = typeof recent?.time?.created === "number" ? recent.time.created : 0
+      consider(id, created, true)
+    }
   }
 
-  const metas = readMainSessionMetas(opts.storage.session, opts.projectRoot)
-  return metas[0]?.id ?? null
+  return bestId
 }
 
 function readMostRecentMessageMeta(messageDir: string, maxMessages: number): StoredMessageMeta | null {

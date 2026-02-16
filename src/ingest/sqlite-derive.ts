@@ -249,22 +249,59 @@ export function pickActiveSessionIdSqlite(opts: {
   projectRoot: string
   boulderSessionIds?: string[]
 }): SqliteDeriveResult<string | null> {
+  const metasResult = readMainSessionMetasSqlite({
+    sqlitePath: opts.sqlitePath,
+    directoryFilter: opts.projectRoot,
+  })
+  if (!metasResult.ok) return metasResult
+
+  const metas = metasResult.rows
+  const metaById = new Map(metas.map((m) => [m.id, m] as const))
+
+  let bestId: string | null = metas[0]?.id ?? null
+  let bestUpdated = bestId ? (metaById.get(bestId)?.time.updated ?? -Infinity) : -Infinity
+  let bestIsBoulder = false
+
+  const consider = (candidateId: string, updatedAt: number, isBoulder: boolean): void => {
+    if (!bestId) {
+      bestId = candidateId
+      bestUpdated = updatedAt
+      bestIsBoulder = isBoulder
+      return
+    }
+    if (updatedAt > bestUpdated) {
+      bestId = candidateId
+      bestUpdated = updatedAt
+      bestIsBoulder = isBoulder
+      return
+    }
+    if (updatedAt === bestUpdated && isBoulder && !bestIsBoulder) {
+      bestId = candidateId
+      bestUpdated = updatedAt
+      bestIsBoulder = true
+    }
+  }
+
   const ids = opts.boulderSessionIds ?? []
   for (let i = ids.length - 1; i >= 0; i--) {
     const id = ids[i]
     const messages = readRecentMessageMetasSqlite({ sqlitePath: opts.sqlitePath, sessionId: id, limit: 1 })
     if (!messages.ok) return messages
-    if (messages.rows.length > 0) {
-      return { ok: true, value: id }
+    if (messages.rows.length === 0) continue
+
+    const meta = metaById.get(id)
+    if (meta) {
+      consider(id, meta.time.updated ?? meta.time.created ?? 0, true)
+      continue
+    }
+
+    if (metas.length === 0) {
+      const created = typeof messages.rows[0]?.time?.created === "number" ? messages.rows[0].time.created : 0
+      consider(id, created, true)
     }
   }
 
-  const metas = readMainSessionMetasSqlite({
-    sqlitePath: opts.sqlitePath,
-    directoryFilter: opts.projectRoot,
-  })
-  if (!metas.ok) return metas
-  return { ok: true, value: metas.rows[0]?.id ?? null }
+  return { ok: true, value: bestId }
 }
 
 export function getMainSessionViewSqlite(opts: {

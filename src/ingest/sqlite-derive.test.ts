@@ -330,11 +330,12 @@ describe("sqlite derive helpers", () => {
     },
   )
 
-  it("pickActiveSessionIdSqlite prefers boulder session ids when they have messages", () => {
+  it("pickActiveSessionIdSqlite prefers newest main session metadata over a stale boulder session_id", () => {
     const sqlitePath = mkSqliteDb()
     const db = new BunDatabase(sqlitePath)
     insertSession(db, { id: "ses_project_latest", directory: "/repo", created: 10, updated: 5000 })
     insertSession(db, { id: "ses_boulder", directory: "/repo", created: 20, updated: 100 })
+    insertMessage(db, { id: "msg_latest", sessionId: "ses_project_latest", created: 5000 })
     insertMessage(db, { id: "msg_boulder", sessionId: "ses_boulder", created: 100 })
     db.close()
 
@@ -342,6 +343,25 @@ describe("sqlite derive helpers", () => {
       sqlitePath,
       projectRoot: "/repo",
       boulderSessionIds: ["ses_missing", "ses_boulder"],
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toBe("ses_project_latest")
+  })
+
+  it("pickActiveSessionIdSqlite prefers a boulder session_id when it is most recent", () => {
+    const sqlitePath = mkSqliteDb()
+    const db = new BunDatabase(sqlitePath)
+    insertSession(db, { id: "ses_project_latest", directory: "/repo", created: 10, updated: 5000 })
+    insertSession(db, { id: "ses_boulder", directory: "/repo", created: 20, updated: 6000 })
+    insertMessage(db, { id: "msg_latest", sessionId: "ses_project_latest", created: 5000 })
+    insertMessage(db, { id: "msg_boulder", sessionId: "ses_boulder", created: 6000 })
+    db.close()
+
+    const result = pickActiveSessionIdSqlite({
+      sqlitePath,
+      projectRoot: "/repo",
+      boulderSessionIds: ["ses_boulder"],
     })
     expect(result.ok).toBe(true)
     if (!result.ok) return

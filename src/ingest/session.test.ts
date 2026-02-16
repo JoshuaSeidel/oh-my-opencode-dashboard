@@ -19,7 +19,7 @@ function mkStorageRoot(): string {
 }
 
 describe("pickActiveSessionId", () => {
-  it("prefers last boulder session_id that exists", () => {
+  it("uses a boulder session_id that exists when no session metadata is available", () => {
     const storageRoot = mkStorageRoot()
     const storage = getStorageRoots(storageRoot)
     const projectRoot = "/tmp/project"
@@ -32,6 +32,45 @@ describe("pickActiveSessionId", () => {
       boulderSessionIds: ["ses_missing", "ses_ok"],
     })
     expect(picked).toBe("ses_ok")
+  })
+
+  it("prefers newest main session metadata over a stale boulder session_id", () => {
+    const storageRoot = mkStorageRoot()
+    const storage = getStorageRoots(storageRoot)
+    const projectRoot = "/tmp/project/"
+    const projectID = "proj_1"
+    fs.mkdirSync(path.join(storage.session, projectID), { recursive: true })
+
+    fs.writeFileSync(
+      path.join(storage.session, projectID, "ses_old.json"),
+      JSON.stringify({
+        id: "ses_old",
+        projectID,
+        directory: "/tmp/project",
+        time: { created: 1, updated: 10 },
+      }),
+      "utf8"
+    )
+    fs.writeFileSync(
+      path.join(storage.session, projectID, "ses_new.json"),
+      JSON.stringify({
+        id: "ses_new",
+        projectID,
+        directory: "/tmp/project",
+        time: { created: 2, updated: 20 },
+      }),
+      "utf8"
+    )
+
+    fs.mkdirSync(path.join(storage.message, "ses_old"), { recursive: true })
+    fs.mkdirSync(path.join(storage.message, "ses_new"), { recursive: true })
+
+    const picked = pickActiveSessionId({
+      projectRoot,
+      storage,
+      boulderSessionIds: ["ses_old"],
+    })
+    expect(picked).toBe("ses_new")
   })
 
   it("falls back to newest main session metadata for directory", () => {
