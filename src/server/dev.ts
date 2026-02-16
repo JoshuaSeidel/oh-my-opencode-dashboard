@@ -7,6 +7,7 @@ import { getLegacyStorageRootForBackend, selectStorageBackend } from "../ingest/
 const args = process.argv.slice(2)
 let projectPath: string | undefined;
 let port = 51234;
+let host = '127.0.0.1';
 
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
@@ -18,6 +19,9 @@ for (let i = 0; i < args.length; i++) {
     if (!isNaN(portValue)) {
       port = portValue;
     }
+    i++;
+  } else if (arg === '--host' && i + 1 < args.length) {
+    host = args[i + 1];
     i++;
   }
 }
@@ -66,8 +70,8 @@ app.route("/api", createApi({ store, storageRoot, projectRoot: resolvedProjectPa
 
 Bun.serve({
   fetch: app.fetch,
-  hostname: '127.0.0.1',
+  hostname: host,
   port,
 })
 
-console.log(`Server running at http://127.0.0.1:${port}`)
+console.log(`Server running at http://${host}:${port}`)
