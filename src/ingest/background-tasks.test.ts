@@ -1343,4 +1343,104 @@ describe("deriveBackgroundTasks", () => {
     const rows = deriveBackgroundTasks({ storage, mainSessionId })
     expect(rows.length).toBe(0)
   })
+
+  it("includes child sessions with activity even when no matching tool call exists", () => {
+    const storageRoot = mkStorageRoot()
+    const storage = getStorageRoots(storageRoot)
+    const mainSessionId = "ses_main"
+
+    // Main session has no messages (tool call might be outside 200-message window or missing)
+    const msgDir = path.join(storage.message, mainSessionId)
+    fs.mkdirSync(msgDir, { recursive: true })
+
+    // Child session exists with activity
+    const projectID = "proj"
+    const sessDir = path.join(storage.session, projectID)
+    fs.mkdirSync(sessDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(sessDir, "ses_child.json"),
+      JSON.stringify({
+        id: "ses_child",
+        projectID,
+        directory: "/tmp/project",
+        title: "Analyze codebase (@explore subagent)",
+        parentID: mainSessionId,
+        time: { created: 1000, updated: 2000 },
+      }),
+      "utf8"
+    )
+
+    // Child session has messages and tool calls (activity)
+    const childMsgDir = path.join(storage.message, "ses_child")
+    fs.mkdirSync(childMsgDir, { recursive: true })
+    const childMsgId = "msg_child"
+    fs.writeFileSync(
+      path.join(childMsgDir, `${childMsgId}.json`),
+      JSON.stringify({
+        id: childMsgId,
+        sessionID: "ses_child",
+        role: "assistant",
+        time: { created: 1500, updated: 2000 },
+      }),
+      "utf8"
+    )
+    const childPartDir = path.join(storage.part, childMsgId)
+    fs.mkdirSync(childPartDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(childPartDir, "part_child.json"),
+      JSON.stringify({
+        id: "part_child",
+        sessionID: "ses_child",
+        messageID: childMsgId,
+        type: "tool",
+        callID: "call_child",
+        tool: "grep",
+        state: { status: "completed", input: {} },
+      }),
+      "utf8"
+    )
+
+    const rows = deriveBackgroundTasks({ storage, mainSessionId, nowMs: 20000 })
+    expect(rows.length).toBe(1)
+    expect(rows[0].description).toBe("Analyze codebase")
+    expect(rows[0].agent).toBe("explore")
+    expect(rows[0].sessionId).toBe("ses_child")
+    expect(rows[0].status).toBe("completed")
+    expect(rows[0].toolCalls).toBe(1)
+    expect(rows[0].id).toBe("session-ses_child")
+  })
+
+  it("excludes child sessions without activity (toolCalls = 0)", () => {
+    const storageRoot = mkStorageRoot()
+    const storage = getStorageRoots(storageRoot)
+    const mainSessionId = "ses_main"
+
+    // Main session has no messages
+    const msgDir = path.join(storage.message, mainSessionId)
+    fs.mkdirSync(msgDir, { recursive: true })
+
+    // Child session exists but has no activity
+    const projectID = "proj"
+    const sessDir = path.join(storage.session, projectID)
+    fs.mkdirSync(sessDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(sessDir, "ses_child.json"),
+      JSON.stringify({
+        id: "ses_child",
+        projectID,
+        directory: "/tmp/project",
+        title: "Empty task (@explore subagent)",
+        parentID: mainSessionId,
+        time: { created: 1000, updated: 1000 },
+      }),
+      "utf8"
+    )
+
+    // Child session message dir exists but is empty (no tool calls)
+    const childMsgDir = path.join(storage.message, "ses_child")
+    fs.mkdirSync(childMsgDir, { recursive: true })
+
+    const rows = deriveBackgroundTasks({ storage, mainSessionId })
+    expect(rows.length).toBe(0)
+  })
 })
