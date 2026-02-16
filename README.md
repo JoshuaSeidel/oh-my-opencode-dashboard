@@ -84,6 +84,7 @@ Options:
 
 - `--project <path>` (optional): project root used for plan lookup + session filtering (defaults to current working directory)
 - `--port <number>` (optional): default 51234
+- `--host <address>` (optional): host address to bind to (default 127.0.0.1). Use 0.0.0.0 to expose on your network
 
 ## Install (from source)
 
@@ -146,7 +147,8 @@ This dashboard is designed to avoid sensitive data:
 
 ## Security
 
-- Server binds to `127.0.0.1` only.
+- Server binds to `127.0.0.1` by default (localhost only).
+- Use `--host 0.0.0.0` to expose the dashboard on your network. **Warning**: This makes the dashboard accessible to anyone on your network.
 - Path access is allowlisted and realpath-based to prevent symlink escape:
   - project root
   - OpenCode storage root

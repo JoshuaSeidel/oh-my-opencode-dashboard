@@ -21,6 +21,7 @@ const { values, positionals } = parseArgs({
     project: { type: 'string' },
     port: { type: 'string' },
     name: { type: 'string' },
+    host: { type: 'string' },
   },
   allowPositionals: true,
 })
@@ -28,6 +29,7 @@ const { values, positionals } = parseArgs({
 const project = values.project ?? process.cwd()
 
 const port = parseInt(values.port || '51234')
+const host = values.host || '127.0.0.1'
 
 const cleanedPositionals = [...positionals]
 if (cleanedPositionals[0] === Bun.argv[0]) cleanedPositionals.shift()
@@ -162,8 +164,8 @@ function getContentType(ext: string): string {
 
 Bun.serve({
   fetch: app.fetch,
-  hostname: '127.0.0.1',
+  hostname: host,
   port,
 })
 
-console.log(`Server running on http://127.0.0.1:${port}`)
+console.log(`Server running on http://${host}:${port}`)

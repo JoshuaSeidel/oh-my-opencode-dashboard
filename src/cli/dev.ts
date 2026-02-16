@@ -7,12 +7,14 @@ import { findAvailablePort } from './ports';
 interface CliArgs {
   project: string;
   port: number;
+  host: string;
 }
 
 function parseArgs(): CliArgs {
   const args = process.argv.slice(2);
   let project: string | undefined;
   let port = 51234; // Default port
+  let host = '127.0.0.1'; // Default host
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -29,16 +31,18 @@ function parseArgs(): CliArgs {
       }
       port = parsedPort;
       i++; // Skip next argument
+    } else if (arg === '--host' && i + 1 < args.length) {
+      host = args[i + 1];
+      i++; // Skip next argument
     }
   }
 
-  return { project: project ?? cwd(), port };
+  return { project: project ?? cwd(), port, host };
 }
 
 async function main() {
-  const { project, port } = parseArgs();
+  const { project, port, host } = parseArgs();
 
-  const host = '127.0.0.1';
   const resolvedPort = await findAvailablePort({ host, preferredPort: port });
   if (resolvedPort !== port) {
     console.log(`Port ${port} is busy; using ${resolvedPort} instead`);
@@ -47,7 +51,7 @@ async function main() {
   console.log(`Starting dev servers for project: ${project}`);
   console.log(`API port: ${resolvedPort}`);
 
-  const apiArgs = ['run', 'src/server/dev.ts', '--', '--project', project, '--port', resolvedPort.toString()];
+  const apiArgs = ['run', 'src/server/dev.ts', '--', '--project', project, '--port', resolvedPort.toString(), '--host', host];
   const uiArgs = ['run', 'dev:ui'];
 
   const apiServer = spawn('bun', apiArgs, {
@@ -129,7 +133,7 @@ async function main() {
   });
 
   console.log('Both servers started successfully');
-  console.log(`API server: http://127.0.0.1:${resolvedPort}`);
+  console.log(`API server: http://${host}:${resolvedPort}`);
   console.log('UI server: check Vite output for URL');
 }
 
